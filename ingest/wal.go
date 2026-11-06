@@ -73,8 +73,25 @@ func (w *Writer) file(station int) (*os.File, error) {
 	if err != nil {
 		return nil, err
 	}
+	// fsync(file) does not make a *newly created* directory entry durable.
+	// Without this, the first acknowledged records of a brand-new station can
+	// vanish on power loss even though their bytes were synced.
+	if err := SyncDir(w.dir); err != nil {
+		f.Close()
+		return nil, err
+	}
 	w.files[station] = f
 	return f, nil
+}
+
+// SyncDir flushes a directory's entries, making creations/renames durable.
+func SyncDir(dir string) error {
+	d, err := os.Open(dir)
+	if err != nil {
+		return err
+	}
+	defer d.Close()
+	return d.Sync()
 }
 
 // Recover rebuilds the dedupe index from the WALs on startup, so idempotency

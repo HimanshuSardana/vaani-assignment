@@ -213,7 +213,11 @@ func rewriteAtomicBytes(path string, data []byte) error {
 		os.Remove(tmp)
 		return err
 	}
-	return os.Rename(tmp, path)
+	if err := os.Rename(tmp, path); err != nil {
+		return err
+	}
+	// The rename itself needs a directory sync to survive a crash.
+	return SyncDir(filepath.Dir(path))
 }
 
 func rewriteAtomic(path string, lines [][]byte) error {
