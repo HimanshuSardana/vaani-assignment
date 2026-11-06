@@ -283,11 +283,8 @@ export default function StationChart({ series, windowSec }: Props) {
   }, []);
 
   return (
-    <div ref={wrapRef}>
-      <canvas
-        ref={canvasRef}
-        style={{ width: "100%", height: "55vh", background: "#11161d", border: "1px solid #222", borderRadius: 8 }}
-      />
+    <div ref={wrapRef} style={{ height: "100%" }}>
+      <canvas ref={canvasRef} style={{ background: "#0e1116" }} />
     </div>
   );
 }

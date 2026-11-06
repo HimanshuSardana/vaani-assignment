@@ -1,22 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import StationChart, { ChartPoint, ChartSeries } from "../components/StationChart";
-
-export const PALETTE = [
-  "#58a6ff",
-  "#3fb950",
-  "#f778ba",
-  "#d29922",
-  "#a371f7",
-  "#39c5cf",
-  "#ff7b72",
-  "#7ee787",
-  "#ffa657",
-  "#79c0ff",
-];
-
-export const stationColor = (id: number) => PALETTE[(id - 1) % PALETTE.length];
+import { stationColor } from "../lib/colors";
 
 interface Pt extends ChartPoint {
   ver: number;
@@ -72,34 +59,31 @@ export default function Page() {
     }
   }, []);
 
-  const ingest = useCallback(
-    (r: Incoming) => {
-      let st = dataRef.current.get(r.station_id);
-      if (!st) {
-        st = {
-          color: stationColor(r.station_id),
-          pts: new Map(),
-          dups: 0,
-          corr: 0,
-          late: 0,
-        };
-        dataRef.current.set(r.station_id, st);
-      }
-      if (r.is_duplicate) {
-        st.dups++;
-        return;
-      }
-      const t = Date.parse(r.ts);
-      if (Number.isNaN(t)) return;
-      const prev = st.pts.get(r.event_id);
-      if (!prev || r.version > prev.ver) {
-        if (prev) st.corr++;
-        else if ((r.late_by_s ?? 0) > 0) st.late++;
-        st.pts.set(r.event_id, { t, v: r.value, ver: r.version });
-      }
-    },
-    []
-  );
+  const ingest = useCallback((r: Incoming) => {
+    let st = dataRef.current.get(r.station_id);
+    if (!st) {
+      st = {
+        color: stationColor(r.station_id),
+        pts: new Map(),
+        dups: 0,
+        corr: 0,
+        late: 0,
+      };
+      dataRef.current.set(r.station_id, st);
+    }
+    if (r.is_duplicate) {
+      st.dups++;
+      return;
+    }
+    const t = Date.parse(r.ts);
+    if (Number.isNaN(t)) return;
+    const prev = st.pts.get(r.event_id);
+    if (!prev || r.version > prev.ver) {
+      if (prev) st.corr++;
+      else if ((r.late_by_s ?? 0) > 0) st.late++;
+      st.pts.set(r.event_id, { t, v: r.value, ver: r.version });
+    }
+  }, []);
 
   const loadStation = useCallback(
     async (id: number) => {
@@ -169,58 +153,114 @@ export default function Page() {
   );
 
   return (
-    <>
-      <header>
-        <h1>
-          Station Monitor{" "}
-          <span className="live" style={{ color: paused ? "#d29922" : "#3fb950" }}>
-            ● {paused ? "paused" : "live"}
-          </span>
-        </h1>
-        <div className="stations">
-          {ids.map((id) => (
-            <label key={id}>
-              <input
-                type="checkbox"
-                checked={selected.includes(id)}
-                onChange={() => toggle(id)}
-              />
-              <span
-                className="dot"
-                style={{ background: stationColor(id) }}
-              />
-              {id}
-            </label>
-          ))}
-        </div>
-        <select
-          value={windowSec}
-          onChange={(e) => setWindowSec(Number(e.target.value))}
-        >
-          <option value={300}>last 5 min</option>
-          <option value={900}>last 15 min</option>
-          <option value={0}>all</option>
-        </select>
-        <button onClick={() => setPaused((p) => !p)}>
-          {paused ? "Resume" : "Pause"}
-        </button>
-      </header>
-      <div className="stats">
-        {selected.length === 0
-          ? "select a station"
-          : selected
-              .map((id) => {
-                const s = stats[id] ?? { pts: 0, dups: 0, corr: 0, late: 0 };
-                return `st${id}: ${s.pts} pts, ${s.dups} dup, ${s.corr} corr, ${s.late} late`;
-              })
-              .join("   •   ")}
-      </div>
-      <div className="chart-wrap">
+    <div className="stage">
+      <div className="chart-layer">
         <StationChart series={series} windowSec={windowSec} />
-        <div className="legend">
-          {series.map((s) => `— st${s.id} (${s.points.length} pts)`).join("   ")}
-        </div>
       </div>
-    </>
+
+      <motion.div
+        className="panel topbar"
+        initial={{ opacity: 0, y: -18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 26 }}
+      >
+        <div className="brand">
+          Station Monitor
+          <motion.span
+            className="live-dot"
+            style={{ background: paused ? "#d29922" : "#3fb950" }}
+            animate={
+              paused
+                ? { scale: 1, opacity: 0.7 }
+                : { scale: [1, 1.5, 1], opacity: [1, 0.55, 1] }
+            }
+            transition={
+              paused ? { duration: 0.2 } : { duration: 1.6, repeat: Infinity }
+            }
+          />
+        </div>
+        <div className="stations">
+          {ids.map((id) => {
+            const on = selected.includes(id);
+            return (
+              <motion.button
+                key={id}
+                className={`station-pill${on ? "" : " off"}`}
+                onClick={() => toggle(id)}
+                whileHover={{ scale: 1.07 }}
+                whileTap={{ scale: 0.93 }}
+                transition={{ type: "spring", stiffness: 500, damping: 22 }}
+                style={
+                  on
+                    ? {
+                        borderColor: stationColor(id),
+                        boxShadow: `0 0 12px ${stationColor(id)}55`,
+                      }
+                    : undefined
+                }
+              >
+                <span
+                  className="dot"
+                  style={{ background: stationColor(id) }}
+                />
+                {id}
+              </motion.button>
+            );
+          })}
+        </div>
+        <div className="controls">
+          <select
+            value={windowSec}
+            onChange={(e) => setWindowSec(Number(e.target.value))}
+          >
+            <option value={300}>last 5 min</option>
+            <option value={900}>last 15 min</option>
+            <option value={0}>all</option>
+          </select>
+          <motion.button
+            className="action-btn"
+            onClick={() => setPaused((p) => !p)}
+            whileTap={{ scale: 0.93 }}
+          >
+            {paused ? "Resume" : "Pause"}
+          </motion.button>
+        </div>
+      </motion.div>
+
+      <AnimatePresence>
+        {selected.length > 0 && (
+          <motion.div
+            key="stats"
+            className="panel stats-panel"
+            initial={{ opacity: 0, y: 18 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: 18 }}
+            transition={{ type: "spring", stiffness: 260, damping: 26 }}
+          >
+            {selected.map((id) => {
+              const s = stats[id] ?? { pts: 0, dups: 0, corr: 0, late: 0 };
+              return (
+                <div key={id}>
+                  <span style={{ color: stationColor(id) }}>● </span>
+                  st{id}: {s.pts} pts, {s.dups} dup, {s.corr} corr, {s.late}{" "}
+                  late
+                </div>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <motion.div
+        className="panel legend-panel"
+        initial={{ opacity: 0, y: 18 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 260, damping: 26, delay: 0.08 }}
+      >
+        {series.length === 0
+          ? "select a station"
+          : series.map((s) => `— st${s.id} (${s.points.length} pts)`).join("   ")}
+      </motion.div>
+    </div>
   );
 }
