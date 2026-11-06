@@ -4,8 +4,10 @@ import { dataDir, listStations } from "@/lib/history";
 
 export const dynamic = "force-dynamic";
 
-// Offsets survive across requests in the same server process.
-const offsets = new Map<string, number>();
+// Offsets are per-connection: a new client tails from "now" and backfills via
+// /api/history. Sharing offsets across clients meant the second client skipped
+// records, and starting at 0 meant the first client received the whole archive
+// as a flood of events.
 
 export async function GET() {
   const dir = dataDir();
@@ -15,6 +17,8 @@ export async function GET() {
 
   const stream = new ReadableStream({
     async start(controller) {
+      const offsets = new Map<string, number>();
+
       const pump = async () => {
         try {
           for (const id of await listStations()) {
@@ -27,7 +31,11 @@ export async function GET() {
             }
             try {
               const st = await fh.stat();
-              let off = offsets.get(p) ?? 0;
+              if (!offsets.has(p)) {
+                offsets.set(p, st.size); // start at the end: only live data
+                continue;
+              }
+              let off = offsets.get(p)!;
               if (st.size < off) off = 0; // truncated / rotated
               const len = st.size - off;
               if (len <= 0) continue;

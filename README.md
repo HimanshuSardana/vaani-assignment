@@ -15,29 +15,25 @@ reads, and recency-weighted similarity. Design write-up: [`report/report.pdf`](r
 | `seed_data.py` | generates a synthetic year (219 MB) for benchmarking |
 | `report/` | the 3-page design document (Typst + PDF) |
 
-## Interactive demo
+## Live demo
 
 ```bash
 ./run-demo.sh          # 5 self-restarting stations + compaction + web on :3000
 STATIONS=5 PORT=3000 RETENTION=90d ./run-demo.sh
 ```
 
-`http://localhost:3000/demo` — six beats:
+- **`/`** — the live view: full-bleed Desmos-style chart (pan, wheel-zoom, price-scale
+  drag), all stations streaming over SSE, ~3 updates/sec, floating station picker
+  and settings behind the gear. This is the thing to look at.
+- **`/explain`** — optional six-beat walkthrough (chaos sliders, full-vs-tail
+  verification, rollup ranges, EWMA/detrend similarity, durability transcript).
 
-1. **the problem** — sliders inject duplicates / reordering / late / corrections; the same records shown as received (scatter) vs as canonical history (clean curve).
-2. **same answer, faster** — one request runs a full parse and a tail read on the same file, diffs the rows, and reports both latencies.
-3. **history at any range** — raw vs per-minute vs per-hour rollups, with a live ETag revalidation (304, no body).
-4. **most similar** — EWMA correlation with a λ (memory) selector and a detrend toggle; shows 0.92 → 0.44 on the same pair.
-5. **durability** — a replayed transcript of ack → `kill -9` → recovery → idempotent retry, plus the honest boundary table.
-6. **how it's built** — flow, decisions ledger, test counts.
+First run seeds a year of synthetic data and compacts it, so there is history to
+query immediately; afterwards the supervised generators keep appending and the
+compaction loop (every 10 min) keeps raw storage bounded. No write path is
+exposed — the ingest service is not started by this script.
 
-First run seeds a year of synthetic data and compacts it, so the demo has history
-immediately; afterwards the supervised generators keep appending and the
-compaction loop (every 10 min) keeps raw storage bounded. Nothing exposes a write
-path: the ingest service is not started by this script.
-
-Stop with `pkill -f run-demo.sh` (it traps TERM and stops the children), or
-`kill $(cat .run/*.pid)`.
+Stop with `pkill -f run-demo.sh` (it traps TERM) or `kill $(cat .run/*.pid)`.
 
 ## Run it
 

@@ -1,7 +1,6 @@
 export default {
-  // The public landing page is the guided demo; the raw dashboard lives at
-  // /dashboard for local use.
+  // `/` is the live dashboard; the guided explainer lives at `/explain`.
   async redirects() {
-    return [{ source: "/", destination: "/demo", permanent: false }];
+    return [{ source: "/demo", destination: "/", permanent: false }];
   },
 };

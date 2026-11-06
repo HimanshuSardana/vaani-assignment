@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import StationChart, { ChartPoint, ChartSeries } from "../../components/StationChart";
-import { stationColor } from "../../lib/colors";
+import StationChart, { ChartPoint, ChartSeries } from "../components/StationChart";
+import { stationColor } from "../lib/colors";
 
 interface Pt extends ChartPoint {
   ver: number;
@@ -53,6 +53,7 @@ export default function Page() {
   const [selected, setSelected] = useState<number[]>([]);
   const [stats, setStats] = useState<Record<number, number>>({});
   const [windowSec, setWindowSec] = useState(900);
+  const [rate, setRate] = useState(0);
   const [following, setFollowing] = useState(true);
   const [open, setOpen] = useState<Section>(null);
   const [panelOpen, setPanelOpen] = useState(false);
@@ -73,6 +74,7 @@ export default function Page() {
   pausedRef.current = paused;
   const lastPaint = useRef(0);
 
+  const seen = useRef(0);
   const poke = useCallback(() => {
     const now = performance.now();
     if (now - lastPaint.current > 500) {
@@ -161,6 +163,7 @@ export default function Page() {
       es = new EventSource("/api/stream");
       es.onmessage = (ev) => {
         try {
+          seen.current++;
           ingest(JSON.parse(ev.data) as Incoming);
         } catch {
           /* torn line */
@@ -170,6 +173,17 @@ export default function Page() {
     })();
     return () => es?.close();
   }, [ingest, loadStation, poke]);
+
+  // Update rate: count messages per second, resetting every tick.
+  useEffect(() => {
+    const t = setInterval(() => {
+      // Average over a 2 s window: with 5 stations at 2 s intervals a 1 s
+      // window lands on 0 or 5 and reads as a glitch.
+      setRate(Number((seen.current / 2).toFixed(1)));
+      seen.current = 0;
+    }, 2000);
+    return () => clearInterval(t);
+  }, []);
 
   // History panel data, refreshed when opened / station changes / every 2s.
   useEffect(() => {
@@ -298,6 +312,22 @@ export default function Page() {
           onUserTakeover={() => setFollowing(false)}
           onFollow={() => setFollowing(true)}
         />
+      </div>
+
+      <div className="livebar">
+        <motion.span
+          className="live-dot"
+          animate={
+            following
+              ? { opacity: [1, 0.35, 1], scale: [1, 1.35, 1] }
+              : { opacity: 0.5, scale: 1 }
+          }
+          transition={following ? { duration: 1.8, repeat: Infinity } : { duration: 0.2 }}
+        />
+        <b>{ids.length}</b> stations
+        <span className="livebar-sep" />
+        <span className="muted">{rate}/s</span>
+        {!following && <span className="livebar-paused">paused</span>}
       </div>
 
       <motion.button

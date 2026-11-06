@@ -70,6 +70,7 @@ for i in $(seq 1 "$STATIONS"); do
   (
     while true; do
       python3 generator.py --station-id "$i" --interval "$INTERVAL" --period "$PERIOD" \
+        --wal "$DATA_PATH/wal-$i.jsonl" \
         --outage-rate 0.004 --dup-rate 0.05 --reorder-rate 0.08 --late-rate 0.05 \
         --correction-rate 0.03 >> "$LOGDIR/station-$i.log" 2>&1 || true
       sleep 2
