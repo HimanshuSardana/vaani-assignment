@@ -37,7 +37,7 @@ recent ranges from raw readings (`&limit=500`).
 ## Verify
 
 ```bash
-cd ingest && go test ./...                 # 13 tests: dedupe, versions, ack==durable,
+cd ingest && go test ./...                 # 11 tests: dedupe, versions, ack==durable,
                                            # recovery, 1,200 concurrent posts, compaction
 cd web && npm test                         # 12 tests against the real read path
 cd web && npx tsc --noEmit

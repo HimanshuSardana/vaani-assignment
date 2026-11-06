@@ -194,14 +194,14 @@ whether 0.92 means "these stations behave alike" or "these stations both went up
   `ingest/` — durable, idempotent write path + compaction (Go, tested) \
   `web/` — history/similar APIs, rollup reads, Next.js dashboard \
   `web/bench.go`, `seed_data.py` — reproducible benchmarks at 1-year scale \
-  `web/lib/history.test.ts` (12 tests), `ingest/main_test.go` (13 tests)
+  `web/lib/history.test.ts` (12 tests), `ingest/main_test.go` (11 tests)
 ]
 
 = How to check any of this
 
 #set list(spacing: 0.75em)
 - `./start-generators.sh 10` — ten stations that misbehave on purpose
-- `cd ingest && go test ./...` — 13 tests: dedupe, versions, ack-implies-durable, crash recovery, 1,200 concurrent posts, compaction idempotence
+- `cd ingest && go test ./...` — 11 tests: dedupe, versions, ack-implies-durable, crash recovery, 1,200 concurrent posts, compaction idempotence
 - `cd web && npm test` — 12 tests against the real read path: canonicalisation, tail == full, EWMA, rollups
 - `cd web && go run bench.go --station 1 --limit 500` — old vs new, same data, same server
 - `python3 seed_data.py --days 365` — regenerate the 219 MB year used above
