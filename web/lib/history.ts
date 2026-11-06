@@ -373,10 +373,11 @@ export async function ewmaCorrelation(
   aId: number,
   bId: number,
   secs: number,
-  lambda: number
+  lambda: number,
+  detrend = false
 ): Promise<EwmaScore> {
   const [sa, sb] = await Promise.all([fs.stat(walPath(aId)), fs.stat(walPath(bId))]);
-  const key = `${Math.min(aId, bId)}:${Math.max(aId, bId)}:${secs}:${lambda}`;
+  const key = `${Math.min(aId, bId)}:${Math.max(aId, bId)}:${secs}:${lambda}:${detrend ? "d" : "r"}`;
   const hit = pairCache.get(key);
   if (
     hit &&
@@ -403,6 +404,9 @@ export async function ewmaCorrelation(
   const decay = lambda;
   const gain = 1 - lambda;
 
+  let prevX = 0;
+  let prevY = 0;
+  let havePrev = false;
   let i = 0;
   let j = 0;
   while (i < ka.length && j < kb.length) {
@@ -411,8 +415,17 @@ export async function ewmaCorrelation(
     } else if (kb[j] < ka[i]) {
       j++;
     } else {
-      const x = va[i];
-      const y = vb[j];
+      // Detrending compares *changes* between consecutive shared buckets, which
+      // removes the shared slow drift that otherwise dominates the correlation.
+      let x = va[i];
+      let y = vb[j];
+      if (detrend && havePrev) {
+        x = x - prevX;
+        y = y - prevY;
+      }
+      prevX = va[i];
+      prevY = vb[j];
+      havePrev = true;
       if (!started) {
         mx = x;
         my = y;
@@ -508,4 +521,10 @@ export async function loadRollups(
   }
   rollupCache.set(key, { size: stat.size, mtimeMs: stat.mtimeMs, rows: trimmed });
   return trimmed;
+}
+
+/** Full canonical parse with no cache — used by /api/verify to measure honestly. */
+export async function loadHistoryUncached(station: number): Promise<Reading[]> {
+  const raw = await fs.readFile(walPath(station), "utf8");
+  return canonical(parseLines(raw.split("\n")));
 }

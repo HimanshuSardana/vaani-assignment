@@ -1,4 +1,5 @@
 import { ewmaCorrelation, listStations, stationSeries } from "@/lib/history";
+import { clientKey, rateLimit, sweep } from "@/lib/ratelimit";
 
 export const dynamic = "force-dynamic";
 
@@ -63,6 +64,16 @@ export async function GET(req: Request) {
     Math.max(0.5, parseFloat(url.searchParams.get("lambda") ?? String(DEFAULT_LAMBDA)) || DEFAULT_LAMBDA)
   );
   const bucketSeconds = 30;
+  const detrend = url.searchParams.get("detrend") === "1";
+
+  sweep();
+  const rl = rateLimit(`similar:${clientKey(req)}`, 60);
+  if (!rl.ok) {
+    return Response.json(
+      { error: "rate limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
+  }
 
   if (!station) {
     return Response.json({ error: "need ?station=<id>" }, { status: 400 });
@@ -83,7 +94,7 @@ export async function GET(req: Request) {
     if (id === station) continue;
     const res =
       metric === "ewma"
-        ? await ewmaCorrelation(station, id, bucketSeconds, lambda)
+        ? await ewmaCorrelation(station, id, bucketSeconds, lambda, detrend)
         : await batchPearson(station, id, bucketSeconds);
     if (res.samples < 3) continue; // too little shared history to judge
     ranking.push({
@@ -98,7 +109,9 @@ export async function GET(req: Request) {
   return Response.json({
     station,
     metric: metric === "ewma" ? "ewma-pearson" : "pearson",
-    ...(metric === "ewma" ? { lambda, memory_buckets: Math.round(1 / (1 - lambda)) } : {}),
+    ...(metric === "ewma"
+      ? { lambda, memory_buckets: Math.round(1 / (1 - lambda)), detrend }
+      : {}),
     bucket_seconds: bucketSeconds,
     compared_against: ids.filter((i) => i !== station),
     ranking: ranking.slice(0, topK),

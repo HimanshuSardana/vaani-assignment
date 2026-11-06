@@ -2,8 +2,8 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "motion/react";
-import StationChart, { ChartPoint, ChartSeries } from "../components/StationChart";
-import { stationColor } from "../lib/colors";
+import StationChart, { ChartPoint, ChartSeries } from "../../components/StationChart";
+import { stationColor } from "../../lib/colors";
 
 interface Pt extends ChartPoint {
   ver: number;

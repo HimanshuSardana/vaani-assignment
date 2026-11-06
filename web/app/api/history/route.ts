@@ -1,4 +1,5 @@
-import { historyPayload, loadRollups, rollupPath } from "@/lib/history";
+import { historyPayload, loadRollups } from "@/lib/history";
+import { clientKey, rateLimit, sweep } from "@/lib/ratelimit";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +18,17 @@ export async function GET(req: Request) {
   if (!station) {
     return Response.json({ error: "need ?station=<id>" }, { status: 400 });
   }
-  const limit = Math.max(0, parseInt(url.searchParams.get("limit") ?? "0", 10) || 0);
+  // Clamped so a public demo cannot ask for an unbounded body.
+  const limit = Math.min(20000, Math.max(0, parseInt(url.searchParams.get("limit") ?? "0", 10) || 0));
+
+  sweep();
+  const rl = rateLimit(`history:${clientKey(req)}`, 240);
+  if (!rl.ok) {
+    return Response.json(
+      { error: "rate limited" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } }
+    );
+  }
   // ?nocache=1 forces the parse path — used by bench to measure cold latency.
   const bypass = url.searchParams.get("nocache") === "1";
 
