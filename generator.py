@@ -57,28 +57,25 @@ def utcnow_iso():
 # ----------------------------------------------------------------------------
 # Signal model
 # ----------------------------------------------------------------------------
-# Stations that "behave most alike" need ground truth. Stations are grouped
-# into archetypes by ID so similarity queries have a right answer:
-#   archetype = (station_id - 1) % num_archetypes
-# Stations in one archetype share base/period/phase; per-station noise and
-# drift make them similar-but-not-identical. Different archetypes have
-# clearly separated baselines.
-ARCHETYPES = [
-    {"name": "coastal",  "base": 18.0, "amplitude": 4.0, "period_s": 300, "phase": 0.0},
-    {"name": "desert",   "base": 32.0, "amplitude": 8.0, "period_s": 300, "phase": 1.1},
-    {"name": "alpine",   "base": 5.0,  "amplitude": 6.0, "period_s": 300, "phase": 2.4},
-]
+# All stations share ONE signal regime (same range). Similarity is then about
+# behaviour — phase, shape, noise texture — not trivial baseline separation.
+# Per-station offsets are deliberately small: a hash of the station id gives
+# each station a slightly different baseline (±1), amplitude (±10%) and
+# phase (±0.3 rad), plus independent noise and slow drift. Stations are
+# near-identical cousins, so "most like X" is a real ranking problem.
+SHARED = {"base": 22.0, "amplitude": 5.0, "phase": 0.0}
 
 
-def station_model(station_id, t_wall, seq, rng):
-    arch = ARCHETYPES[(station_id - 1) % len(ARCHETYPES)]
+def station_model(station_id, t_wall, seq, rng, period_s):
+    h = ((station_id * 7919) % 1000) / 1000.0  # deterministic per-station in [0, 1)
+    base = SHARED["base"] + (h - 0.5) * 2.0
+    amplitude = SHARED["amplitude"] * (0.9 + 0.2 * h)
+    phase = SHARED["phase"] + (h - 0.5) * 0.6
     # Slow per-station drift so histories diverge over long runs.
-    drift = ((station_id * 7919) % 1000) / 1000.0 * 0.0005 * seq
-    signal_val = arch["base"] + arch["amplitude"] * math.sin(
-        2 * math.pi * t_wall / arch["period_s"] + arch["phase"]
-    )
+    drift = (h - 0.5) * 0.001 * seq
+    signal_val = base + amplitude * math.sin(2 * math.pi * t_wall / period_s + phase)
     noise = rng.gauss(0, 0.4)
-    return round(signal_val + drift + noise, 3), arch["name"]
+    return round(signal_val + drift + noise, 3), "standard"
 
 
 # ----------------------------------------------------------------------------
@@ -132,6 +129,8 @@ def parse_args():
                    help="0 = derive from station id")
     p.add_argument("--die-after", type=float, default=float(os.getenv("DIE_AFTER", "0")),
                    help="seconds after which the station goes silent forever (0 = never)")
+    p.add_argument("--period", type=float, default=float(os.getenv("PERIOD", "300")),
+                   help="sine period in seconds (shorten when generating fast so shape stays visible)")
     p.add_argument("--dup-rate", type=float, default=0.05)
     p.add_argument("--reorder-rate", type=float, default=0.08)
     p.add_argument("--late-rate", type=float, default=0.05)
@@ -186,7 +185,7 @@ def main():
 
         seq += 1
         t_wall = time.time()
-        value, archetype = station_model(station_id, t_wall, seq, rng)
+        value, archetype = station_model(station_id, t_wall, seq, rng, args.period)
 
         # --- late arrival: event time is minutes in the past ---
         event_t = t_wall

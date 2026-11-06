@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Station Monitor</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; font-family: system-ui, sans-serif; background: #0e1116; color: #e6e6e6; }
+  header { padding: 12px 16px; border-bottom: 1px solid #222; display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+  header h1 { font-size: 16px; margin: 0 16px 0 0; }
+  #stations { display: flex; gap: 8px; flex-wrap: wrap; }
+  #stations label { display: flex; align-items: center; gap: 4px; font-size: 13px;
+    background: #161b22; border: 1px solid #2a3340; border-radius: 6px; padding: 4px 8px; cursor: pointer; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+  select, button { background: #161b22; color: #e6e6e6; border: 1px solid #2a3340; border-radius: 6px; padding: 4px 8px; }
+  #stats { font-size: 12px; color: #9aa4b2; padding: 8px 16px; }
+  #wrap { padding: 0 16px 16px; }
+  canvas { width: 100%; height: 55vh; background: #11161d; border: 1px solid #222; border-radius: 8px; }
+  #legend { font-size: 12px; color: #9aa4b2; padding-top: 6px; }
+  #live { font-size: 12px; color: #3fb950; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Station Monitor <span id="live">&#9679; live</span></h1>
+  <div id="stations"></div>
+  <select id="window">
+    <option value="300">last 5 min</option>
+    <option value="900" selected>last 15 min</option>
+    <option value="0">all</option>
+  </select>
+  <button id="pause">Pause</button>
+</header>
+<div id="stats">connecting…</div>
+<div id="wrap">
+  <canvas id="chart"></canvas>
+  <div id="legend"></div>
+</div>
+
+<script>
+const PALETTE = ["#58a6ff","#3fb950","#f778ba","#d29922","#a371f7","#39c5cf","#ff7b72","#7ee787","#ffa657","#79c0ff"];
+const state = new Map();   // stationId -> {color, pts: Map(event_id -> {t, v}), dups, corr, late}
+let paused = false, drawQueued = false;
+
+const $ = id => document.getElementById(id);
+const canvas = $("chart"), ctx = canvas.getContext("2d");
+
+function fitCanvas() {
+  const dpr = window.devicePixelRatio || 1, r = canvas.getBoundingClientRect();
+  canvas.width = r.width * dpr; canvas.height = r.height * dpr;
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+window.addEventListener("resize", () => { fitCanvas(); queueDraw(); });
+
+function stationColor(id) { return PALETTE[(id - 1) % PALETTE.length]; }
+
+async function init() {
+  const ids = await (await fetch("/api/stations")).json();
+  const box = $("stations");
+  ids.forEach((id, i) => {
+    state.set(id, { color: stationColor(id), pts: new Map(), dups: 0, corr: 0, late: 0 });
+    const lab = document.createElement("label");
+    lab.innerHTML = `<input type="checkbox" ${i < 3 ? "checked" : ""} value="${id}">
+      <span class="dot" style="background:${stationColor(id)}"></span>${id}`;
+    lab.querySelector("input").addEventListener("change", () => { loadSelected(); queueDraw(); });
+    box.appendChild(lab);
+  });
+  fitCanvas();
+  await loadSelected();
+  connect();
+  $("window").addEventListener("change", queueDraw);
+  $("pause").addEventListener("click", e => {
+    paused = !paused;
+    e.target.textContent = paused ? "Resume" : "Pause";
+    $("live").style.color = paused ? "#d29922" : "#3fb950";
+  });
+}
+
+async function loadSelected() {
+  for (const [id, st] of state) {
+    if (!selected().includes(id)) continue;
+    if (st.pts.size) continue; // already loaded; live updates append
+    const hist = await (await fetch(`/api/history?station=${id}&limit=2000`)).json();
+    hist.forEach(r => ingest(r));
+  }
+  updateStats();
+}
+
+const selected = () => [...document.querySelectorAll("#stations input:checked")].map(c => +c.value);
+
+function ingest(r) {
+  const st = state.get(r.station_id);
+  if (!st) return; // unknown station; will appear on reload
+  const t = Date.parse(r.ts);
+  if (r.is_duplicate) { st.dups++; return; }
+  const prev = st.pts.get(r.event_id);
+  if (!prev || r.version > prev.ver) {
+    if (prev && r.version > prev.ver) st.corr++;
+    st.pts.set(r.event_id, { t, v: r.value, ver: r.version });
+  }
+  if (r.late_by_s > 0 && !prev) st.late++;
+}
+
+function connect() {
+  const es = new EventSource("/api/stream");
+  es.onmessage = ev => {
+    try { ingest(JSON.parse(ev.data)); } catch {}
+    if (!paused) { updateStats(); queueDraw(); }
+  };
+  es.onerror = () => { $("live").style.color = "#ff7b72"; };
+  es.onopen = () => { if (!paused) $("live").style.color = "#3fb950"; };
+}
+
+function updateStats() {
+  const parts = [];
+  for (const [id, st] of state) {
+    if (!selected().includes(id)) continue;
+    parts.push(`st${id}: ${st.pts.size} pts, ${st.dups} dup, ${st.corr} corr, ${st.late} late`);
+  }
+  $("stats").textContent = parts.join("   •   ") || "select a station";
+}
+
+function queueDraw() {
+  if (drawQueued) return;
+  drawQueued = true;
+  requestAnimationFrame(() => { drawQueued = false; draw(); });
+}
+
+function draw() {
+  const W = canvas.getBoundingClientRect().width, H = canvas.getBoundingClientRect().height;
+  ctx.clearRect(0, 0, W, H);
+  const padL = 52, padR = 12, padT = 12, padB = 24;
+  const win = +$("window").value;
+  const now = Date.now();
+  const tMin = win ? now - win * 1000 : -Infinity;
+  let lo = Infinity, hi = -Infinity, vLo = Infinity, vHi = -Infinity, any = false;
+
+  const series = [];
+  for (const id of selected()) {
+    const st = state.get(id);
+    if (!st) continue;
+    const pts = [...st.pts.values()].filter(p => p.t >= tMin).sort((a, b) => a.t - b.t);
+    if (!pts.length) continue;
+    any = true;
+    series.push({ id, color: st.color, pts });
+    for (const p of pts) {
+      if (p.t < lo) lo = p.t; if (p.t > hi) hi = p.t;
+      if (p.v < vLo) vLo = p.v; if (p.v > vHi) vHi = p.v;
+    }
+  }
+  if (!any) {
+    ctx.fillStyle = "#9aa4b2"; ctx.font = "13px system-ui";
+    ctx.fillText("No data in window — check a station, or let generators run.", padL, 40);
+    return;
+  }
+  if (win) { lo = Math.min(lo, now - win * 1000); hi = Math.max(hi, now); }
+  if (hi - lo < 1000) hi = lo + 1000;
+  const pad = (vHi - vLo || 1) * 0.1; vLo -= pad; vHi += pad;
+  const X = t => padL + (t - lo) / (hi - lo) * (W - padL - padR);
+  const Y = v => padT + (1 - (v - vLo) / (vHi - vLo)) * (H - padT - padB);
+
+  // grid + axes
+  ctx.strokeStyle = "#1e2630"; ctx.fillStyle = "#7d8590"; ctx.font = "11px system-ui"; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const v = vLo + (vHi - vLo) * i / 4, y = Y(v);
+    ctx.beginPath(); ctx.moveTo(padL, y); ctx.lineTo(W - padR, y); ctx.stroke();
+    ctx.fillText(v.toFixed(1), 6, y + 3);
+  }
+  for (let i = 0; i <= 5; i++) {
+    const t = lo + (hi - lo) * i / 5;
+    ctx.fillText(new Date(t).toLocaleTimeString(), X(t) - 24, H - 8);
+  }
+
+  // lines
+  ctx.lineWidth = 1.6;
+  for (const s of series) {
+    ctx.strokeStyle = s.color;
+    ctx.beginPath();
+    s.pts.forEach((p, i) => i ? ctx.lineTo(X(p.t), Y(p.v)) : ctx.moveTo(X(p.t), Y(p.v)));
+    ctx.stroke();
+    const last = s.pts[s.pts.length - 1];
+    ctx.fillStyle = s.color;
+    ctx.beginPath(); ctx.arc(X(last.t), Y(last.v), 3, 0, 7); ctx.fill();
+  }
+  $("legend").textContent = series.map(s => `— st${s.id} (${s.pts.length} pts)`).join("   ");
+}
+
+init();
+</script>
+</body>
+</html>
