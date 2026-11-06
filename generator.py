@@ -158,6 +158,7 @@ def main():
         file=sys.stderr, flush=True,
     )
 
+    run_id = int(start)  # unique per process launch
     seq = 0
     pending = []   # reorder buffer: held-back records sent out of order
     history = []   # recent records, eligible for dup / correction
@@ -194,7 +195,10 @@ def main():
             late_by = rng.uniform(300, 3600)
             event_t = t_wall - late_by
 
-        event_id = f"{station_id}:{seq:06d}"
+        # Run-scoped id: seq restarts at 1 on every launch, so without the run
+        # stamp a relaunched station would reuse event_ids and silently shadow
+        # its own history (dedupe by event_id).
+        event_id = f"{station_id}:{run_id}:{seq:06d}"
         record = {
             "station_id": station_id,
             "event_id": event_id,
