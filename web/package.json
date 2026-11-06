@@ -1,0 +1,26 @@
+{
+  "name": "station-monitor",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev -p 3000",
+    "build": "next build",
+    "start": "next start -p 3000",
+    "test": "node --experimental-strip-types --no-warnings --test lib/history.test.ts",
+    "test:ingest": "cd ../ingest && go test ./...",
+    "bench": "go run bench.go"
+  },
+  "dependencies": {
+    "lightweight-charts": "^5.2.1",
+    "motion": "^14.10.0",
+    "next": "^15.1.6",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "typescript": "^5.7.0"
+  }
+}
